@@ -1,10 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Flame } from 'lucide-react';
 import ShameButton from './components/ShameButton';
 
 const HERO_IMAGE =
   'https://wallpaper-mania.com/wp-content/uploads/2018/09/1273633.jpg';
+
+const ShameButtonWithClick = ShameButton as React.ComponentType<{
+  onClick: () => void;
+  disabled: boolean;
+}>;
 
 type AgentResult = {
   roast: string;
@@ -24,7 +29,9 @@ function buildRoast(
   const preview =
     chaos.length > 280 ? `${chaos.slice(0, 277).trimEnd()}…` : chaos.trim();
 
-  const baseHeader = `# 🗡️ Shame.lol\n\n> Immutable public execution transcript\n\n## Chaos fed to the dragon\n\n\`\`\`text\n${preview || '<< empty chaos, like a SharePoint search result >>'}\n\`\`\`\n`;
+  const baseHeader = `# 🗡️ Shame.lol\n\n> Immutable public execution transcript\n\n## Chaos fed to the dragon\n\n\`\`\`text\n${
+    preview || '<< empty chaos, like a SharePoint search result >>'
+  }\n\`\`\`\n`;
 
   if (kind === 'deck') {
     return (
@@ -66,7 +73,7 @@ function useMockShame(): MockShameState {
     setError(null);
     setData(null);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       try {
         const lower = chaos.toLowerCase();
         let kind: 'deck' | 'prd' | 'ticket' | 'unknown' = 'unknown';
@@ -103,38 +110,40 @@ function useMockShame(): MockShameState {
 
 const App: React.FC = () => {
   const [input, setInput] = useState('');
-  const [result, setResult] = useState('');
-  const [bellsRung, setBellsRung] = useState(0);
 
   const { mutate, isLoading, data, error } = useMockShame();
 
-  useEffect(() => {
-    if (data?.roast) {
-      setResult(data.roast);
-    }
-  }, [data]);
-
-  useEffect(() => {
+  // replaces the two result-setting effects at ~113 and ~118
+  const resultText = useMemo(() => {
     if (error) {
-      setResult(error.message || 'Dragon slept instead of roasting.');
+      return error.message || 'Dragon slept instead of roasting.';
     }
-  }, [error]);
 
-  useEffect(() => {
-    setBellsRung(isLoading ? 3 : 0);
-  }, [isLoading]);
+    if (data?.roast) {
+      return data.roast;
+    }
 
-  const handleShame = () => {
+    return '';
+  }, [data, error]);
+
+  // replaces bells state + layout effect at ~122
+  const bellsRung = isLoading ? 3 : 0;
+
+  const disabled = !input.trim() || isLoading;
+  const hasResult = !isLoading && resultText.trim().length > 0;
+
+  // stable callbacks for the button at ~210
+  const handleShame = useCallback(() => {
     const chaos = input.trim();
     if (!chaos || isLoading) return;
-    setResult('');
     mutate(chaos);
-  };
+  }, [input, isLoading, mutate]);
 
-  const handleDownload = () => {
-    if (!result.trim()) return;
+  const handleDownload = useCallback(() => {
+    const content = resultText.trim();
+    if (!content) return;
 
-    const blob = new Blob([result], {
+    const blob = new Blob([content], {
       type: 'text/markdown;charset=utf-8'
     });
     const url = URL.createObjectURL(blob);
@@ -145,10 +154,7 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  };
-
-  const hasResult = result.trim().length > 0;
-  const disabled = !input.trim() || isLoading;
+  }, [resultText]);
 
   return (
     <div className="min-h-screen bg-black text-red-50 flex">
@@ -159,7 +165,11 @@ const App: React.FC = () => {
             alt="Jon Snow facing a dragon"
             className="w-full h-64 md:h-80 lg:h-96 object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+          {/* tweaked overlay at ~160 to be explicitly decorative */}
+<div
+  aria-hidden="true"
+  className="absolute inset-0 bg-linear-to-t from-black via-black/60 to-transparent"
+/>
           <div className="absolute inset-x-0 bottom-6 flex flex-col items-center space-y-3 px-4">
             <div className="flex items-center gap-2 text-xs md:text-sm tracking-[0.35em] uppercase text-red-200/80">
               <Flame className="w-4 h-4 text-red-400" />
@@ -187,7 +197,7 @@ const App: React.FC = () => {
 
           <div className="flex flex-col items-center gap-8">
             <div className="flex items-center justify-center gap-12 md:gap-16 text-6xl md:text-7xl lg:text-8xl">
-              {[0, 1, 2].map(index => (
+              {[0, 1, 2].map((index) => (
                 <motion.span
                   key={index}
                   className="text-yellow-300 drop-shadow-[0_0_25px_rgba(250,204,21,0.95)]"
@@ -208,14 +218,14 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            <div className="flex flex-col md:flex-row items-center gap-5">
-              <ShameButton onClick={handleShame} disabled={disabled} />
-              {isLoading && (
-                <div className="text-3xl md:text-4xl text-red-400/90 animate-pulse text-center">
-                  dragon roars…
-                </div>
-              )}
-            </div>
+<div className="flex flex-col md:flex-row items-center gap-5">
+  <ShameButtonWithClick onClick={handleShame} disabled={disabled} />
+  {isLoading && (
+    <div className="text-3xl md:text-4xl text-red-400/90 animate-pulse text-center">
+      dragon roars…
+    </div>
+  )}
+</div>
           </div>
         </section>
 
@@ -237,7 +247,7 @@ const App: React.FC = () => {
 
           <pre className="w-full bg-gray-900 border border-red-900/80 rounded-2xl px-6 md:px-10 py-6 md:py-10 text-sm md:text-lg font-serif whitespace-pre-wrap leading-relaxed text-red-100/90 shadow-[0_0_80px_rgba(0,0,0,1)]">
             {hasResult
-              ? result
+              ? resultText
               : 'Awaiting your chaos. The dragon is hungry.'}
           </pre>
         </section>

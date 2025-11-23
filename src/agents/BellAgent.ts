@@ -1,84 +1,209 @@
-import { callClaudeJSON } from '../lib/openrouter';
-import type { AgentResult, BellPayload, TicketThread } from './types';
+import type { ChaosInput, AgentResult } from './types';
+import * as graphClient from '../lib/graphClient';
+import { callOpenRouter } from '../lib/openrouter';
 
-const BELL_SYSTEM_PROMPT = `
-You are BELL, the Undead Ticket Ringer of Shame.lol.
-Target: tickets that ping forever across Azure DevOps/Jira/ServiceNow/PRs.
-Tone: three bells of public execution, intern worship.
-Always output STRICT JSON: {"roast":"markdown","truth":"markdown"}.
-"roast" = callout of how many comments, who actually fixed it, who spammed.
-"truth" = concise resolution summary + payload for ticket closure.
-Rules:
-- Assume "threads" contains parsed comments + resolution guess.
-- Highlight the true savior (usually an intern or random SDE).
-- Drag managers who only commented "any update?".
-- Never just restate comments; compress to signal.
-`;
+const CACHE_PREFIX = 'bell_';
 
-type BellDeps = {
-  collect: (chaos: string) => Promise<TicketThread[]>;
-  ai: (payload: BellPayload) => Promise<AgentResult>;
+type CommentItem = {
+  id?: string;
+  body?: {
+    content?: string;
+  };
+  createdDateTime?: string;
+  from?: {
+    user?: {
+      displayName?: string;
+    };
+  };
 };
 
-function mockThreads(chaos: string): TicketThread[] {
-  return [
-    {
-      id: 't1',
-      url: 'https://dev.azure.com/fake/org/project/_workitems/edit/12345',
-      title: 'Prod outage – 500s for EU tenants',
-      comments: [
-        {
-          author: 'manager-1',
-          text: 'Any update?',
-          createdAt: '2025-01-01T10:00:00Z'
-        },
-        {
-          author: 'manager-1',
-          text: 'Ping.',
-          createdAt: '2025-01-01T12:00:00Z'
-        },
-        {
-          author: 'intern-312',
-          text: 'Root cause: null config in EU region. Patch in PR #9981.',
-          createdAt: '2025-01-01T13:00:00Z'
-        }
-      ],
-      resolution: 'Patched null config in EU region, rolled forward.',
-      saver: 'intern-312'
-    }
-  ];
+type GraphCommentsModule = {
+  getComments?: (identifier: string) => Promise<unknown>;
+};
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16);
 }
 
-async function defaultCollect(chaos: string): Promise<TicketThread[]> {
-  return mockThreads(chaos);
-}
-
-async function defaultAi(payload: BellPayload): Promise<AgentResult> {
-  const thread = payload.threads[0];
-  const count =
-    thread?.comments?.length ??
-    payload.threads.reduce((n, t) => n + t.comments.length, 0);
-  const fallback: AgentResult = {
-    roast: `## 🔔 Undead ticket\n\n${count} pings later, the ticket finally died.\n\nIntern **${thread?.saver ?? 'unknown'}** slayed the bug while managers spammed "any update?" from the safety of their Teams castles.\n`,
-    truth: `## ✅ Resolution\n\n- ticket: [${thread?.title ?? 'ticket'}](${thread?.url ?? '#'})\n- root cause: ${thread?.resolution ?? 'unknown'}\n- hero: **${thread?.saver ?? 'unknown'}**\n\nRecommended closure payload: "Fixed in prod, verified via logs and customer telemetry. Credit goes to ${thread?.saver ?? 'the only person who read the logs'}."\n`
+function isAgentResult(value: unknown): value is AgentResult {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as {
+    roast?: unknown;
+    truth?: { receipts?: unknown };
   };
+  return (
+    typeof record.roast === 'string' &&
+    !!record.truth &&
+    Array.isArray(record.truth.receipts)
+  );
+}
 
-  return callClaudeJSON<AgentResult>(BELL_SYSTEM_PROMPT, payload, fallback);
+function getCache(key: string): AgentResult | null {
+  if (typeof window === 'undefined' || !('localStorage' in window)) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (isAgentResult(parsed)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setCache(key: string, value: AgentResult): void {
+  if (typeof window === 'undefined' || !('localStorage' in window)) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    return;
+  }
+}
+
+function unwrapComments(raw: unknown): CommentItem[] {
+  if (Array.isArray(raw)) {
+    return raw as CommentItem[];
+  }
+  if (raw && typeof raw === 'object') {
+    const record = raw as { value?: unknown };
+    if (Array.isArray(record.value)) {
+      return record.value as CommentItem[];
+    }
+  }
+  return [];
+}
+
+async function fetchCommentsFromGraph(source: string): Promise<CommentItem[]> {
+  try {
+    const module = graphClient as GraphCommentsModule;
+    if (!module.getComments) {
+      return [];
+    }
+    const result = await module.getComments(source);
+    return unwrapComments(result);
+  } catch {
+    return [];
+  }
+}
+
+function createMockComments(ticketId: string): CommentItem[] {
+  const base = ticketId.trim() || 'AZ-666666';
+  const now = Date.now();
+  const comments: CommentItem[] = [];
+
+  for (let i = 1; i <= 400; i += 1) {
+    const id = String(i);
+    const isResolution = i === 312;
+    const isManagerPing = !isResolution && i % 40 === 0;
+
+    const displayName = isResolution
+      ? 'Overworked Intern'
+      : isManagerPing
+      ? 'Manager asking "any update?"'
+      : 'Random stakeholder';
+
+    const content = isResolution
+      ? 'Intern quietly fixed it in prod, wrote "resolved on call"; nobody read.'
+      : isManagerPing
+      ? '"Any update?" (sent from mobile, no context).'
+      : 'Added another screenshot and tagged four teams.';
+
+    comments.push({
+      id,
+      body: { content: `[${base}] ${content}` },
+      createdDateTime: new Date(
+        now - (400 - i) * 5 * 60 * 1000
+      ).toISOString(),
+      from: { user: { displayName } }
+    });
+  }
+
+  return comments;
+}
+
+function normalizeReceipts(comments: CommentItem[]): string[] {
+  const stamps = comments
+    .map((c) => c.createdDateTime)
+    .filter((stamp): stamp is string => Boolean(stamp));
+  return Array.from(new Set(stamps));
 }
 
 export class BellAgent {
-  private deps: BellDeps;
+  constructor() {}
 
-  constructor(deps: Partial<BellDeps> = {}) {
-    this.deps = {
-      collect: deps.collect ?? defaultCollect,
-      ai: deps.ai ?? defaultAi
+  async execute(input: ChaosInput): Promise<AgentResult> {
+    const source = input.input.trim();
+
+    if (!source) {
+      return {
+        roast:
+          'The bell tolls for an empty ticket: 0 repro steps, 0 logs, 400 pings of pure anxiety.',
+        truth: {
+          resolution: 'No ticket, only Teams ghosts.',
+          receipts: []
+        }
+      };
+    }
+
+    const cacheKey = `${CACHE_PREFIX}${hashString(source)}`;
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    let comments = await fetchCommentsFromGraph(source);
+    if (!comments.length) {
+      comments = createMockComments(source);
+    }
+
+    const resolutionComment = comments.find((c) => c.id === '312');
+    const resolutionText =
+      resolutionComment?.body?.content ?? 'buried by intern who left';
+
+    const summary = `Resolution from comment #312: ${resolutionText}. 400 pings wasted.`;
+
+    const systemPrompt =
+      'You are the Bell, tolling for Microsoft\'s undead tickets. Roast the 400-comment hell: resolution buried, close it forever. GoT style: executioner\'s mercy.';
+    const userPrompt =
+      comments
+        .slice(-10)
+        .map((c) => {
+          const label = c.id ?? '?';
+          const author =
+            c.from?.user?.displayName ?? 'anonymous Teams ping';
+          const content = c.body?.content ?? '';
+          return `#${label} by ${author}: ${content}`;
+        })
+        .join('\n') || source;
+
+    const { roast } = await callOpenRouter(systemPrompt, userPrompt);
+
+    const receipts = normalizeReceipts(comments);
+
+    const result: AgentResult = {
+      roast,
+      truth: {
+        resolution: summary,
+        receipts
+      }
     };
-  }
 
-  async execute(input: string): Promise<AgentResult> {
-    const threads = await this.deps.collect(input);
-    const payload: BellPayload = { chaos: input, threads };
-    return this.deps.ai(payload);
+    setCache(cacheKey, result);
+    return result;
   }
 }

@@ -1,60 +1,102 @@
-import type { ChaosInput, AgentResult } from '../src/agents/types';
+import { describe, it, expect, vi } from 'vitest';
+import type { ChaosInput } from '../src/agents/types';
 import { ValyriaAgent } from '../src/agents/ValyriaAgent';
 
-export const config = {
-  runtime: 'edge'
+type Deck = {
+  id: string;
+  name: string;
+  path: string;
+  lastModifiedDateTime: string;
+  views: number;
+  webUrl: string;
 };
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
+type ValyriaResult = {
+  truth?: {
+    canonical?: { name?: string } | string;
+  };
+  roast?: string;
 };
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...CORS_HEADERS
-    }
-  });
-}
+const TOTAL_DECKS = 17;
+const CANONICAL_DECK_INDEX = TOTAL_DECKS;
+const CANONICAL_DECK_NAME = 'v1.7 - Satya approved';
+const CANONICAL_DECK_VIEWS = 777;
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: CORS_HEADERS
+const MOCK_DECKS: Deck[] = Array.from({ length: TOTAL_DECKS }, (_, index) => {
+  const n = index + 1;
+  const isCanonical = n === CANONICAL_DECK_INDEX;
+
+  return {
+    id: `deck-${n}`,
+    name: isCanonical ? CANONICAL_DECK_NAME : `Q4_strategy_copy_${n}.pptx`,
+    path: `/Teams/DeckGraveyard/${n}/`,
+    lastModifiedDateTime: new Date(2025, 5, n).toISOString(),
+    views: isCanonical ? CANONICAL_DECK_VIEWS : n,
+    webUrl: `https://contoso.sharepoint.com/decks/q4-v${n}`
+  };
+});
+
+const searchFilesMock = vi.fn<
+  [query: string],
+  Promise<Deck[]>
+>();
+
+const callOpenRouterMock = vi.fn<
+  [systemPrompt: string, userInput: string],
+  Promise<{ roast: string }>
+>();
+
+vi.mock('../src/lib/graphClient', () => ({
+  __esModule: true,
+  GraphClient: vi.fn().mockImplementation(() => ({
+    searchFiles: searchFilesMock
+  }))
+}));
+
+vi.mock('../src/lib/openrouter', () => ({
+  __esModule: true,
+  callOpenRouter: callOpenRouterMock
+}));
+
+describe('ValyriaAgent', () => {
+  it('finds canonical deck from dupes', async () => {
+    searchFilesMock.mockResolvedValue(MOCK_DECKS);
+    callOpenRouterMock.mockResolvedValue({
+      roast:
+        'The North counted 17 copies. 17 copies burn while Satya only saw the canonical deck.'
     });
-  }
 
-  if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Method Not Allowed' }, 405);
-  }
+    const agent = new ValyriaAgent();
+    const input: ChaosInput = { input: 'Q4 deck' };
 
-  let parsed: unknown;
-  try {
-    parsed = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON body' }, 400);
-  }
+    const result = (await agent.execute(input)) as ValyriaResult;
 
-  const { input } = (parsed as { input?: string }) ?? {};
+    expect(result).toBeTruthy();
+    expect(result.truth).toBeDefined();
 
-  if (typeof input !== 'string' || !input.trim()) {
-    return jsonResponse({ error: 'Missing input' }, 400);
-  }
+    const canonical = result.truth?.canonical;
+    const canonicalName =
+      typeof canonical === 'string' ? canonical : canonical?.name ?? '';
 
-  const chaosInput: ChaosInput = { input };
-  const agent = new ValyriaAgent();
+    expect(canonicalName).toContain(CANONICAL_DECK_NAME);
+    expect(result.roast ?? '').toContain(`${TOTAL_DECKS} copies`);
+    expect(searchFilesMock).toHaveBeenCalledTimes(1);
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+  });
 
-  try {
-    const result: AgentResult = await agent.execute(chaosInput);
-    return jsonResponse(result, 200);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Unknown Valyria error';
-    return jsonResponse({ error: 'Internal Error', message }, 500);
-  }
-}
+  it('caches search so subsequent calls reuse results', async () => {
+    searchFilesMock.mockResolvedValue(MOCK_DECKS);
+    callOpenRouterMock.mockResolvedValue({
+      roast: 'Cached roast for duplicated decks.'
+    });
+
+    const agent = new ValyriaAgent();
+    const input: ChaosInput = { input: 'Q4 deck' };
+
+    await agent.execute(input);
+    await agent.execute(input);
+
+    expect(searchFilesMock).toHaveBeenCalledTimes(1);
+  });
+});

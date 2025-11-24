@@ -10,30 +10,30 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "@types/react": "latest",
-    "typescript": "latest",
-    "@vitejs/plugin-react": "latest",
-    "@tailwindcss/vite": "latest",
-    "framer-motion": "latest",
-    "lucide-react": "latest",
-    "react-confetti": "latest",
     "@microsoft/microsoft-graph-client": "latest",
-    "diff-match-patch": "latest",
-    "vitest": "latest",
-    "jsdom": "latest",
+    "@tailwindcss/vite": "latest",
     "@testing-library/react": "latest",
-    "react-markdown": "latest"
+    "@types/react": "latest",
+    "@vitejs/plugin-react": "latest",
+    "diff-match-patch": "latest",
+    "framer-motion": "latest",
+    "jsdom": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-confetti": "latest",
+    "react-dom": "latest",
+    "react-markdown": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
-    "tailwindcss": "latest",
-    "vercel": "latest",
-    "eslint": "latest",
-    "@typescript-eslint/parser": "latest",
+    "@types/node": "^24.10.1",
+    "@types/react-dom": "latest",
     "@typescript-eslint/eslint-plugin": "latest",
-    "@types/node": "latest",
-    "@types/react-dom": "latest"
+    "@typescript-eslint/parser": "latest",
+    "eslint": "latest",
+    "tailwindcss": "latest",
+    "vercel": "^48.10.10",
+    "vitest": "^4.0.13"
   }
 }

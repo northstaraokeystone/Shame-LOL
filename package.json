@@ -7,33 +7,42 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "audit:ignore": "npm audit --audit-level=moderate"
   },
   "dependencies": {
-    "@microsoft/microsoft-graph-client": "latest",
-    "@tailwindcss/vite": "latest",
-    "@testing-library/react": "latest",
-    "@types/react": "latest",
-    "@vitejs/plugin-react": "latest",
-    "diff-match-patch": "latest",
-    "framer-motion": "latest",
-    "jsdom": "latest",
-    "lucide-react": "latest",
-    "react": "latest",
-    "react-confetti": "latest",
-    "react-dom": "latest",
-    "react-markdown": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@microsoft/microsoft-graph-client": "^3.0.8",
+    "@tailwindcss/vite": "^4.0.0-alpha.25",
+    "diff-match-patch": "^1.0.5",
+    "framer-motion": "^11.5.4",
+    "lucide-react": "^0.441.0",
+    "react": "^18.3.1",
+    "react-confetti": "^6.1.0",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "typescript": "^5.5.4"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
-    "@types/react-dom": "latest",
-    "@typescript-eslint/eslint-plugin": "latest",
-    "@typescript-eslint/parser": "latest",
-    "eslint": "latest",
-    "tailwindcss": "latest",
-    "vercel": "^48.10.10",
-    "vitest": "^4.0.13"
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.7.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "@vitest/ui": "^2.1.3",
+    "eslint": "^9.12.0",
+    "jsdom": "^25.0.1",
+    "tailwindcss": "^4.0.0-alpha.25",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.3"
+  },
+  "overrides": {
+    "lodash": "^4.17.21",
+    "vite": "^5.4.0",
+    "react-dom": "^18.3.1"
   }
 }
